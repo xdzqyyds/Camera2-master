@@ -23,10 +23,11 @@ import java.util.List;
 public class AFragment extends Fragment {
     private static final String TAG = "AFragment";
 
+    //定义一个常量，用于区分当前的权限请求
     private static final int PERMISSIONS_REQUEST_CODE = 100;
     //双镜控制类
     private DualCameraController dualCameraController;
-    //页面显示类
+    //页面显示类，保存两个 TextureView
     private List<TextureView> mTextureViews;
 
     @Nullable
