@@ -11,6 +11,7 @@ import android.view.LayoutInflater;
 import android.view.TextureView;
 import android.view.View;
 import android.view.ViewGroup;
+import android.widget.Button;
 
 import com.xfishs.aplayer.utils.DualCamera;
 import com.xfishs.aplayer.utils.DualCameraController;
@@ -29,6 +30,7 @@ public class AFragment extends Fragment {
     private DualCameraController dualCameraController;
     //页面显示类，保存两个 TextureView
     private List<TextureView> mTextureViews;
+    private Button btnCapture;
 
     @Nullable
     @Override
@@ -37,6 +39,13 @@ public class AFragment extends Fragment {
         View v = inflater.inflate(R.layout.activity_main, container, false);
         //初始化组件
         findView(v);
+        // 初始化拍照按钮
+        btnCapture = v.findViewById(R.id.btn_capture);
+        btnCapture.setOnClickListener(v1 -> {
+            if (dualCameraController != null) {
+                dualCameraController.captureImages(); // 调用控制器的拍照方法
+            }
+        });
         //权限检查
         if (ActivityCompat.checkSelfPermission(getContext(), Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) {
             openDualCamera();
