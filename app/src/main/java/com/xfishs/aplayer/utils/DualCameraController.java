@@ -13,6 +13,7 @@ import android.hardware.camera2.CameraCaptureSession;
 import android.hardware.camera2.CameraDevice;
 import android.hardware.camera2.CameraManager;
 import android.hardware.camera2.CaptureFailure;
+import android.hardware.camera2.CameraCharacteristics;
 import android.hardware.camera2.CaptureRequest;
 import android.hardware.camera2.MultiResolutionImageReader;
 import android.hardware.camera2.TotalCaptureResult;
@@ -189,6 +190,34 @@ public class DualCameraController {
 
             }
 
+            CameraManager manager = (CameraManager) context.getSystemService(Context.CAMERA_SERVICE);
+            String[] cameraIds = manager.getCameraIdList();
+            for(String cameraId:cameraIds){
+
+                CameraCharacteristics characteristics = manager.getCameraCharacteristics(cameraId);
+                int hardwareLevel = characteristics.get(CameraCharacteristics.INFO_SUPPORTED_HARDWARE_LEVEL);
+                String levelString;
+                switch (hardwareLevel) {
+                    case CameraCharacteristics.INFO_SUPPORTED_HARDWARE_LEVEL_LEGACY:
+                        levelString = "LEGACY (仅支持 Camera1 API 功能)";
+                        break;
+                    case CameraCharacteristics.INFO_SUPPORTED_HARDWARE_LEVEL_LIMITED:
+                        levelString = "LIMITED (部分支持)";
+                        break;
+                    case CameraCharacteristics.INFO_SUPPORTED_HARDWARE_LEVEL_FULL:
+                        levelString = "FULL (完全支持)";
+                        break;
+                    case CameraCharacteristics.INFO_SUPPORTED_HARDWARE_LEVEL_3:
+                        levelString = "LEVEL_3 (扩展支持)";
+                        break;
+                    default:
+                        levelString = "UNKNOWN";
+                        break;
+                }
+                Log.d("Camera2Support", "Camera ID: " + cameraId + ", Support Level: " + levelString);
+
+            }
+
 
 //            Collection<OutputConfiguration> outputConfig_sample = OutputConfiguration.createInstancesForMultiResolutionOutput(multiResolutionImageReader);
 //
@@ -251,7 +280,7 @@ public class DualCameraController {
 
         try {
             CaptureRequest.Builder captureRequest = cameraDevice.createCaptureRequest(CameraDevice.TEMPLATE_STILL_CAPTURE);
-            
+
             Collection<OutputConfiguration> outputConfig_sample = OutputConfiguration.createInstancesForMultiResolutionOutput(multiResolutionImageReader);
             for (OutputConfiguration config : outputConfig_sample) {
                 captureRequest.addTarget(config.getSurface());
@@ -285,33 +314,41 @@ public class DualCameraController {
                     saveImageExecutor // 使用独立线程处理保存图像
             );
 
-            cameraSession.capture(captureRequest.build(), null,handler);
 
 
-//            cameraCaptureSession.capture(captureRequest, new CameraCaptureSession.CaptureCallback() {
-//                @Override
-//                public void onCaptureCompleted(@NonNull CameraCaptureSession session,
-//                                               @NonNull CaptureRequest request,
-//                                               @NonNull TotalCaptureResult result) {
-//                    super.onCaptureCompleted(session, request, result);
-//                    Log.d(TAG, "------Capture completed.");
-//                    closeCaptureSession(cameraSession_cap);
-//                    resumePreview();
-//                }
-//                @Override
-//                public void onCaptureFailed(@NonNull CameraCaptureSession session,
-//                                            @NonNull CaptureRequest request,
-//                                            @NonNull CaptureFailure failure) {
-//                    super.onCaptureFailed(session, request, failure);
-//                    Log.e(TAG, "------Capture failed with reason: " + failure.getReason());
-//                    if (failure.wasImageCaptured()) {
-//                        Log.e(TAG, "------Image was partially captured.");
-//                    } else {
-//                        Log.e(TAG, "------No image was captured.");
-//                    }
-//                }
-//            }, mBackgroundHandler);  // 使用后台线程处理捕获过程
 
+
+//            cameraSession.capture(captureRequest.build(), null,handler);
+            HandlerThread backgroundThread = new HandlerThread("CameraBackgroundThread");
+            backgroundThread.start();
+            Handler mBackgroundHandler = new Handler(backgroundThread.getLooper());
+
+            try {
+                cameraSession.capture(captureRequest.build(), new CameraCaptureSession.CaptureCallback() {
+                    @Override
+                    public void onCaptureCompleted(@NonNull CameraCaptureSession session,
+                                                   @NonNull CaptureRequest request,
+                                                   @NonNull TotalCaptureResult result) {
+                        super.onCaptureCompleted(session, request, result);
+                        Log.d(TAG, "------Capture completed.");
+                    }
+
+                    @Override
+                    public void onCaptureFailed(@NonNull CameraCaptureSession session,
+                                                @NonNull CaptureRequest request,
+                                                @NonNull CaptureFailure failure) {
+                        super.onCaptureFailed(session, request, failure);
+                        Log.e(TAG, "------Capture failed with reason: " + failure.getReason());
+                        if (failure.wasImageCaptured()) {
+                            Log.e(TAG, "------Image was partially captured.");
+                        } else {
+                            Log.e(TAG, "------No image was captured.");
+                        }
+                    }
+                }, mBackgroundHandler);  // 使用后台线程处理捕获过程
+            }catch(Exception e) {
+                Log.e(TAG, "Error while saving image: " + e.getMessage());
+            }
 
         } catch (CameraAccessException e) {
             Log.e(TAG, "拍照失败", e);
@@ -439,14 +476,9 @@ public class DualCameraController {
                 cameraDevice = null;
             }
 
-            if (imageReader1 != null) {
-                imageReader1.close();
-                imageReader1 = null;
-            }
-
-            if (imageReader2 != null) {
-                imageReader2.close();
-                imageReader2 = null;
+            if (multiResolutionImageReader != null) {
+                multiResolutionImageReader.close();
+                multiResolutionImageReader = null;
             }
 
             Log.d(TAG, "相机资源已成功释放");
