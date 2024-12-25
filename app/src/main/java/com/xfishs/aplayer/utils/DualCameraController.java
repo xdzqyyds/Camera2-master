@@ -318,37 +318,37 @@ public class DualCameraController {
 
 
 
-//            cameraSession.capture(captureRequest.build(), null,handler);
-            HandlerThread backgroundThread = new HandlerThread("CameraBackgroundThread");
-            backgroundThread.start();
-            Handler mBackgroundHandler = new Handler(backgroundThread.getLooper());
-
-            try {
-                cameraSession.capture(captureRequest.build(), new CameraCaptureSession.CaptureCallback() {
-                    @Override
-                    public void onCaptureCompleted(@NonNull CameraCaptureSession session,
-                                                   @NonNull CaptureRequest request,
-                                                   @NonNull TotalCaptureResult result) {
-                        super.onCaptureCompleted(session, request, result);
-                        Log.d(TAG, "------Capture completed.");
-                    }
-
-                    @Override
-                    public void onCaptureFailed(@NonNull CameraCaptureSession session,
-                                                @NonNull CaptureRequest request,
-                                                @NonNull CaptureFailure failure) {
-                        super.onCaptureFailed(session, request, failure);
-                        Log.e(TAG, "------Capture failed with reason: " + failure.getReason());
-                        if (failure.wasImageCaptured()) {
-                            Log.e(TAG, "------Image was partially captured.");
-                        } else {
-                            Log.e(TAG, "------No image was captured.");
-                        }
-                    }
-                }, mBackgroundHandler);  // 使用后台线程处理捕获过程
-            }catch(Exception e) {
-                Log.e(TAG, "Error while saving image: " + e.getMessage());
-            }
+            cameraSession.capture(captureRequest.build(), null,handler);
+//            HandlerThread backgroundThread = new HandlerThread("CameraBackgroundThread");
+//            backgroundThread.start();
+//            Handler mBackgroundHandler = new Handler(backgroundThread.getLooper());
+//
+//            try {
+//                cameraSession.capture(captureRequest.build(), new CameraCaptureSession.CaptureCallback() {
+//                    @Override
+//                    public void onCaptureCompleted(@NonNull CameraCaptureSession session,
+//                                                   @NonNull CaptureRequest request,
+//                                                   @NonNull TotalCaptureResult result) {
+//                        super.onCaptureCompleted(session, request, result);
+//                        Log.d(TAG, "------Capture completed.");
+//                    }
+//
+//                    @Override
+//                    public void onCaptureFailed(@NonNull CameraCaptureSession session,
+//                                                @NonNull CaptureRequest request,
+//                                                @NonNull CaptureFailure failure) {
+//                        super.onCaptureFailed(session, request, failure);
+//                        Log.e(TAG, "------Capture failed with reason: " + failure.getReason());
+//                        if (failure.wasImageCaptured()) {
+//                            Log.e(TAG, "------Image was partially captured.");
+//                        } else {
+//                            Log.e(TAG, "------No image was captured.");
+//                        }
+//                    }
+//                }, mBackgroundHandler);  // 使用后台线程处理捕获过程
+//            }catch(Exception e) {
+//                Log.e(TAG, "Error while saving image: " + e.getMessage());
+//            }
 
         } catch (CameraAccessException e) {
             Log.e(TAG, "拍照失败", e);
