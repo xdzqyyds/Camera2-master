@@ -30,6 +30,7 @@ public class AFragment extends Fragment {
     private DualCameraController dualCameraController;
     //页面显示类，保存两个 TextureView
     private List<TextureView> mTextureViews;
+    //按键
     private Button btnCapture;
 
     @Nullable
@@ -40,12 +41,12 @@ public class AFragment extends Fragment {
         //初始化组件
         findView(v);
         // 初始化拍照按钮
-        btnCapture = v.findViewById(R.id.btn_capture);
-        btnCapture.setOnClickListener(v1 -> {
-            if (dualCameraController != null) {
-                dualCameraController.captureImages(); // 调用控制器的拍照方法
-            }
-        });
+//        btnCapture = v.findViewById(R.id.btn_capture);
+//        btnCapture.setOnClickListener(v1 -> {
+//            if (dualCameraController != null) {
+//                dualCameraController.captureImages(); // 调用控制器的拍照方法
+//            }
+//        });
         //权限检查
         if (ActivityCompat.checkSelfPermission(getContext(), Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) {
             openDualCamera();
