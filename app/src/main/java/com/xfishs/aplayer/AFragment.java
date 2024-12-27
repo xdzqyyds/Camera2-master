@@ -14,7 +14,9 @@ import android.view.ViewGroup;
 import android.widget.Button;
 
 import com.xfishs.aplayer.utils.DualCamera;
-import com.xfishs.aplayer.utils.DualCameraController;
+
+//import com.xfishs.aplayer.utils.DualCameraController;
+import com.xfishs.aplayer.utils.Dual_camera_121;
 import com.xfishs.aplayer.utils.DualCameraFactoryUtil;
 
 import java.util.ArrayList;
@@ -27,7 +29,10 @@ public class AFragment extends Fragment {
     //定义一个常量，用于区分当前的权限请求
     private static final int PERMISSIONS_REQUEST_CODE = 100;
     //双镜控制类
-    private DualCameraController dualCameraController;
+
+//    private DualCameraController dualCameraController;
+
+    private Dual_camera_121 dualCameraController;
     //页面显示类，保存两个 TextureView
     private List<TextureView> mTextureViews;
     private Button btnCapture;
@@ -43,7 +48,7 @@ public class AFragment extends Fragment {
         btnCapture = v.findViewById(R.id.btn_capture);
         btnCapture.setOnClickListener(v1 -> {
             if (dualCameraController != null) {
-                dualCameraController.captureImages(); // 调用控制器的拍照方法
+                dualCameraController.takePicture(); // 调用控制器的拍照方法
             }
         });
         //权限检查
@@ -61,7 +66,9 @@ public class AFragment extends Fragment {
         //获取双镜类
         DualCamera dualCamera = DualCameraFactoryUtil.getDualCamera(getActivity());
         //打开双镜
-        dualCameraController = new DualCameraController(getActivity(), mTextureViews.get(0), mTextureViews.get(1), dualCamera);
+//        dualCameraController = new DualCameraController(getActivity(), mTextureViews.get(0), mTextureViews.get(1), dualCamera);
+        dualCameraController = new Dual_camera_121(getActivity(), mTextureViews.get(0), mTextureViews.get(1), dualCamera);
+
     }
 
     @Override
