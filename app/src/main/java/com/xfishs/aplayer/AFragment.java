@@ -32,6 +32,9 @@ public class AFragment extends Fragment {
     private List<TextureView> mTextureViews;
     private Button btnCapture;
 
+    private boolean isRecording = false;
+
+    private Button btnRecord;
     @Nullable
     @Override
     public View onCreateView(LayoutInflater inflater, ViewGroup container, Bundle
@@ -46,6 +49,20 @@ public class AFragment extends Fragment {
                 dualCameraController.captureImages(); // 调用控制器的拍照方法
             }
         });
+
+        btnRecord = v.findViewById(R.id.btn_record);
+        btnRecord.setOnClickListener(v1 -> {
+            if (dualCameraController != null) {
+                if (isRecording) {
+                    // 停止录制
+                    stopRecording();
+                } else {
+                    // 开始录制
+                    startRecording();
+                }
+            }
+        });
+
         //权限检查
         if (ActivityCompat.checkSelfPermission(getContext(), Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) {
             openDualCamera();
@@ -56,7 +73,23 @@ public class AFragment extends Fragment {
         return v;
     }
 
-    //打开双镜
+    private void startRecording() {
+        if (dualCameraController != null) {
+            dualCameraController.startDualCameraRecording(); // 启动双摄像头录制
+            isRecording = true;
+            btnRecord.setText("停止录制"); // 修改按钮文本为停止
+        }
+    }
+
+    private void stopRecording() {
+        if (dualCameraController != null) {
+            dualCameraController.stopDualCameraRecording(); // 停止双摄像头录制
+            btnRecord.setText("开始录制"); // 修改按钮文本为开始
+        }
+    }
+
+
+            //打开双镜
     private void openDualCamera() {
         //获取双镜类
         DualCamera dualCamera = DualCameraFactoryUtil.getDualCamera(getActivity());

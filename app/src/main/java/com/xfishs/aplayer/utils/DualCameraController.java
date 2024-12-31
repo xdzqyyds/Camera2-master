@@ -1,5 +1,6 @@
 package com.xfishs.aplayer.utils;
 
+import android.util.SizeF;
 import android.Manifest;
 import android.app.Activity;
 import android.content.ContentResolver;
@@ -12,40 +13,35 @@ import android.hardware.camera2.CameraAccessException;
 import android.hardware.camera2.CameraCaptureSession;
 import android.hardware.camera2.CameraDevice;
 import android.hardware.camera2.CameraManager;
-import android.hardware.camera2.CaptureFailure;
-import android.hardware.camera2.CameraCharacteristics;
 import android.hardware.camera2.CaptureRequest;
-import android.hardware.camera2.MultiResolutionImageReader;
-import android.hardware.camera2.TotalCaptureResult;
-import android.hardware.camera2.params.MultiResolutionStreamInfo;
 import android.hardware.camera2.params.OutputConfiguration;
 import android.hardware.camera2.params.SessionConfiguration;
 import android.media.Image;
 import android.media.ImageReader;
+import android.media.MediaRecorder;
+import android.hardware.camera2.TotalCaptureResult;
 import android.media.MediaScannerConnection;
 import android.net.Uri;
-import android.os.AsyncTask;
 import android.os.Environment;
 import android.os.Handler;
 import android.os.HandlerThread;
 import androidx.annotation.NonNull;
 import androidx.core.app.ActivityCompat;
-
+import android.os.Build;
+import android.hardware.camera2.CameraCharacteristics;
 import android.provider.MediaStore;
 import android.util.Log;
 import android.view.Surface;
 import android.view.TextureView;
-
-import java.io.ByteArrayOutputStream;
+import android.hardware.camera2.CameraManager;
 import java.io.File;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.OutputStream;
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
-import java.util.Collection;
+import java.util.Arrays;
 import java.util.List;
-import java.util.Objects;
 import java.util.concurrent.Executor;
 
 public class DualCameraController {
@@ -60,10 +56,18 @@ public class DualCameraController {
     // Camera 相关变量
     private CameraDevice cameraDevice; // 摄像头实例
     private CameraCaptureSession cameraSession; // 捕获会话
+    private CameraCaptureSession vcameraSession;
     private CaptureRequest.Builder mPreViewBuilder; // 预览请求构造器
+    private CaptureRequest.Builder vPreViewBuilder;
     private ImageReader imageReader1; // 第一个摄像头的 ImageReader
     private ImageReader imageReader2; // 第二个摄像头的 ImageReader
-    private MultiResolutionImageReader multiResolutionImageReader;
+
+    private MediaRecorder mediaRecorder1;
+
+    private MediaRecorder mediaRecorder2;
+    private File videoFile1;
+    private File videoFile2;
+
     // 线程和上下文
     private Activity context;
     private Handler handler; // 用于后台线程的 Handler
@@ -101,33 +105,37 @@ public class DualCameraController {
         }
     };
 
-    public void openCamera(){
-        HandlerThread thread = new HandlerThread("DualCamera");
-        thread.start();
-        handler = new Handler(thread.getLooper());
-        CameraManager manager = (CameraManager) context.getSystemService(Context.CAMERA_SERVICE);
+    public void openCamera() {
+        if (isCameraOpening) {
+            Log.e(TAG, "相机正在初始化，跳过此次调用");
+            return;
+        }
+        isCameraOpening = true;
+
         try {
+            HandlerThread thread = new HandlerThread("DualCameraThread");
+            thread.start();
+            handler = new Handler(thread.getLooper());
+
+            CameraManager manager = (CameraManager) context.getSystemService(Context.CAMERA_SERVICE);
             if (ActivityCompat.checkSelfPermission(context, Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) {
                 ActivityCompat.requestPermissions(context, new String[]{Manifest.permission.CAMERA}, PERMISSIONS_REQUEST_CODE);
                 return;
             }
-            manager.openCamera(dualCamera.getLogicCameraId(), AsyncTask.SERIAL_EXECUTOR, cameraOpenCallBack);
+            manager.openCamera(dualCamera.getLogicCameraId(), cameraOpenCallBack, handler);
         } catch (CameraAccessException e) {
-            e.printStackTrace();
+            Log.e(TAG, "打开相机失败", e);
+        } finally {
+            isCameraOpening = false;
         }
     }
 
     private CameraDevice.StateCallback cameraOpenCallBack = new CameraDevice.StateCallback() {
         @Override
-        public void onOpened(@NonNull CameraDevice cameraDevice) {
+        public void onOpened(@NonNull CameraDevice device) {
             Log.d(TAG, "相机已打开");
-            try {
-                config(cameraDevice); // 配置摄像头
-                Log.d(TAG, "摄像头配置成功");
-            } catch (Exception e) {
-                Log.e(TAG, "摄像头配置失败", e);
-
-            }
+            cameraDevice = device; // 保存 CameraDevice 实例
+            config(cameraDevice); // 配置摄像头
         }
 
         @Override
@@ -159,89 +167,34 @@ public class DualCameraController {
 
             SurfaceTexture texture1 = textureView1.getSurfaceTexture();
             Surface surface1 = new Surface(texture1);
-            OutputConfiguration outputConfiguration = new OutputConfiguration(surface1);
-            outputConfiguration.setPhysicalCameraId(dualCamera.getPhysicsCameraId1());
-            configurations.add(outputConfiguration);
+            OutputConfiguration configuration =new OutputConfiguration(surface1);
+            configuration.setPhysicalCameraId(dualCamera.getPhysicsCameraId1());
+            configurations.add(configuration);
             mPreViewBuilder.addTarget(surface1);
 
             SurfaceTexture texture2 = textureView2.getSurfaceTexture();
             Surface surface2 = new Surface(texture2);
-            OutputConfiguration outputConfiguration2 = new OutputConfiguration(surface2);
-            outputConfiguration2.setPhysicalCameraId(dualCamera.getPhysicsCameraId2());
-            configurations.add(outputConfiguration2);
+            OutputConfiguration configuration2 =new OutputConfiguration(surface2);
+            configuration2.setPhysicalCameraId(dualCamera.getPhysicsCameraId2());
+            configurations.add(configuration2);
             mPreViewBuilder.addTarget(surface2);
 
+            imageReader1 = ImageReader.newInstance(1920, 1080, ImageFormat.JPEG, 3);
+            imageReader2 = ImageReader.newInstance(1920, 1080, ImageFormat.JPEG, 3);
+            OutputConfiguration configuration_im1 =new OutputConfiguration(imageReader1.getSurface());
+            configuration_im1.setPhysicalCameraId(dualCamera.getPhysicsCameraId1());
+            OutputConfiguration configuration_im2 =new OutputConfiguration(imageReader2.getSurface());
+            configuration_im2.setPhysicalCameraId(dualCamera.getPhysicsCameraId2());
+            configurations.add(configuration_im1);
+            configurations.add(configuration_im2);
 
 
+            // 为每个摄像头初始化 MediaRecorder
+            mediaRecorder1 = new MediaRecorder();
+            mediaRecorder2 = new MediaRecorder();
 
-            List<MultiResolutionStreamInfo> streams = new ArrayList<>();
-            MultiResolutionStreamInfo streamInfo1 = new MultiResolutionStreamInfo(1920, 1080, dualCamera.getPhysicsCameraId1()); // 1920x1080，30fps
-            MultiResolutionStreamInfo streamInfo2 = new MultiResolutionStreamInfo(1920, 1080, dualCamera.getPhysicsCameraId2());  // 1280x720，30fps
-            streams.add(streamInfo1);
-            streams.add(streamInfo2);
-            multiResolutionImageReader = new MultiResolutionImageReader(
-                    streams,
-                    ImageFormat.JPEG,  // 假设您使用的是 JPEG 格式
-                    1  // 最大图像数（例如：5个图像）
-            );
-            Collection<OutputConfiguration> outputConfig_sample = OutputConfiguration.createInstancesForMultiResolutionOutput(multiResolutionImageReader);
-            for (OutputConfiguration config : outputConfig_sample) {
-                configurations.add(config);
+            // 设置每个 MediaRecorder 的配置
 
-            }
-
-            CameraManager manager = (CameraManager) context.getSystemService(Context.CAMERA_SERVICE);
-            String[] cameraIds = manager.getCameraIdList();
-            for(String cameraId:cameraIds){
-
-                CameraCharacteristics characteristics = manager.getCameraCharacteristics(cameraId);
-                int hardwareLevel = characteristics.get(CameraCharacteristics.INFO_SUPPORTED_HARDWARE_LEVEL);
-                String levelString;
-                switch (hardwareLevel) {
-                    case CameraCharacteristics.INFO_SUPPORTED_HARDWARE_LEVEL_LEGACY:
-                        levelString = "LEGACY (仅支持 Camera1 API 功能)";
-                        break;
-                    case CameraCharacteristics.INFO_SUPPORTED_HARDWARE_LEVEL_LIMITED:
-                        levelString = "LIMITED (部分支持)";
-                        break;
-                    case CameraCharacteristics.INFO_SUPPORTED_HARDWARE_LEVEL_FULL:
-                        levelString = "FULL (完全支持)";
-                        break;
-                    case CameraCharacteristics.INFO_SUPPORTED_HARDWARE_LEVEL_3:
-                        levelString = "LEVEL_3 (扩展支持)";
-                        break;
-                    default:
-                        levelString = "UNKNOWN";
-                        break;
-                }
-                Log.d("Camera2Support", "Camera ID: " + cameraId + ", Support Level: " + levelString);
-
-            }
-
-
-//            Collection<OutputConfiguration> outputConfig_sample = OutputConfiguration.createInstancesForMultiResolutionOutput(multiResolutionImageReader);
-//
-//            for (OutputConfiguration config : outputConfig_sample) {
-//                configurations.add(new OutputConfiguration(config.getSurface()));
-//            }
-
-
-//            imageReader1 = ImageReader.newInstance(1920, 1080, ImageFormat.JPEG, 3);
-//            imageReader2 = ImageReader.newInstance(1920, 1080, ImageFormat.JPEG, 3);
-
-//            mPreViewBuilder.addTarget(imageReader1.getSurface());
-//            mPreViewBuilder.addTarget(imageReader2.getSurface());
-
-//            OutputConfiguration outputConfiguration_im1 = new OutputConfiguration(imageReader1.getSurface());
-//            outputConfiguration_im1.setPhysicalCameraId(dualCamera.getPhysicsCameraId1());
-//            configurations.add(outputConfiguration_im1);
-//
-//            OutputConfiguration outputConfiguration_im2  = new OutputConfiguration(imageReader2.getSurface());
-//            outputConfiguration_im2.setPhysicalCameraId(dualCamera.getPhysicsCameraId2());
-//            configurations.add(outputConfiguration_im2);
-
-//            mPreViewBuilder.addTarget(imageReader1.getSurface());
-//            mPreViewBuilder.addTarget(imageReader2.getSurface());
 
             Executor executor = command -> handler.post(command);
 
@@ -272,83 +225,87 @@ public class DualCameraController {
     }
 
     public void captureImages() {
-        cameraDevice = cameraSession.getDevice();
         if (cameraDevice == null || cameraSession == null) {
             Log.e(TAG, "摄像头未初始化或会话为空");
             return;
         }
 
         try {
-            CaptureRequest.Builder captureRequest = cameraDevice.createCaptureRequest(CameraDevice.TEMPLATE_STILL_CAPTURE);
-
-            Collection<OutputConfiguration> outputConfig_sample = OutputConfiguration.createInstancesForMultiResolutionOutput(multiResolutionImageReader);
-            for (OutputConfiguration config : outputConfig_sample) {
-                captureRequest.addTarget(config.getSurface());
+            if (imageReader1 == null || imageReader2 == null) {
+                Log.e(TAG, "ImageReader 未初始化");
+                return;
             }
 
-            HandlerThread saveImageThread = new HandlerThread("SaveImageThread");
-            saveImageThread.start();
-            Handler saveImageHandler = new Handler(saveImageThread.getLooper());
-            Executor saveImageExecutor = command -> saveImageHandler.post(command);
-            multiResolutionImageReader.setOnImageAvailableListener(
-                    new ImageReader.OnImageAvailableListener() {
-                        @Override
-                        public void onImageAvailable(ImageReader reader) {
-                            saveImageExecutor.execute(() -> {
-                                Image image = reader.acquireLatestImage();
-                                if (image != null) {
-                                    try {
-                                        saveImageToFile(image);  // 保存图像
-                                        Log.d(TAG, "Image saved successfully.");
-                                    } catch (Exception e) {
-                                        Log.e(TAG, "Error while saving image: " + e.getMessage());
-                                    } finally {
-                                        image.close();  // 确保关闭图像
-                                    }
-                                } else {
-                                    Log.d(TAG, "Image is null.");
-                                }
-                            });
-                        }
-                    },
-                    saveImageExecutor // 使用独立线程处理保存图像
-            );
+            //检查关于支持camrea2-API所有功能的支持情况
+            CameraManager manager = (CameraManager) context.getSystemService(Context.CAMERA_SERVICE);
+            String[] cameraIdList_1 = manager.getCameraIdList();
+            String[] cameraIdList = {dualCamera.getPhysicsCameraId1(), dualCamera.getPhysicsCameraId2()};
+            for (String cameraId : cameraIdList) {
+                CameraCharacteristics characteristics = manager.getCameraCharacteristics(cameraId);
+                float[] focalLengths = characteristics.get(CameraCharacteristics.LENS_INFO_AVAILABLE_FOCAL_LENGTHS);
+                if (focalLengths != null) {
+                    for (float focalLength : focalLengths) {
+                        Log.d("CameraInfo", "Focal Length: " + focalLength + " mm");
+                    }
+                }
+
+                // 获取传感器物理尺寸
+                SizeF sensorSize = characteristics.get(CameraCharacteristics.SENSOR_INFO_PHYSICAL_SIZE);
+                if (sensorSize != null) {
+                    Log.d("CameraInfo", "Sensor Size: " + sensorSize.getWidth() + " x " + sensorSize.getHeight() + " mm");
+                }
+
+                // 获取支持的光圈值
+                float[] apertures = characteristics.get(CameraCharacteristics.LENS_INFO_AVAILABLE_APERTURES);
+                if (apertures != null) {
+                    for (float aperture : apertures) {
+                        Log.d("CameraInfo", "Aperture: f/" + aperture);
+                    }
+                }
+
+                // 计算视野场角 (FOV)
+                if (focalLengths != null && focalLengths.length > 0 && sensorSize != null) {
+                    float focalLength = focalLengths[0];
+                    double horizontalFOV = 2 * Math.atan(sensorSize.getWidth() / (2 * focalLength)) * (180 / Math.PI);
+                    double verticalFOV = 2 * Math.atan(sensorSize.getHeight() / (2 * focalLength)) * (180 / Math.PI);
+                    Log.d("CameraInfo", "Horizontal FOV: " + horizontalFOV + "°");
+                    Log.d("CameraInfo", "Vertical FOV: " + verticalFOV + "°");
+                }
+            }
 
 
 
-
-
-            cameraSession.capture(captureRequest.build(), null,handler);
-//            HandlerThread backgroundThread = new HandlerThread("CameraBackgroundThread");
-//            backgroundThread.start();
-//            Handler mBackgroundHandler = new Handler(backgroundThread.getLooper());
+//            CameraCharacteristics characteristics = manager.getCameraCharacteristics(dualCamera.getPhysicsCameraId1());
+//            int[] availableTemplates = characteristics.get(CameraCharacteristics.REQUEST_AVAILABLE_CAPABILITIES);
 //
-//            try {
-//                cameraSession.capture(captureRequest.build(), new CameraCaptureSession.CaptureCallback() {
-//                    @Override
-//                    public void onCaptureCompleted(@NonNull CameraCaptureSession session,
-//                                                   @NonNull CaptureRequest request,
-//                                                   @NonNull TotalCaptureResult result) {
-//                        super.onCaptureCompleted(session, request, result);
-//                        Log.d(TAG, "------Capture completed.");
-//                    }
-//
-//                    @Override
-//                    public void onCaptureFailed(@NonNull CameraCaptureSession session,
-//                                                @NonNull CaptureRequest request,
-//                                                @NonNull CaptureFailure failure) {
-//                        super.onCaptureFailed(session, request, failure);
-//                        Log.e(TAG, "------Capture failed with reason: " + failure.getReason());
-//                        if (failure.wasImageCaptured()) {
-//                            Log.e(TAG, "------Image was partially captured.");
-//                        } else {
-//                            Log.e(TAG, "------No image was captured.");
-//                        }
-//                    }
-//                }, mBackgroundHandler);  // 使用后台线程处理捕获过程
-//            }catch(Exception e) {
-//                Log.e(TAG, "Error while saving image: " + e.getMessage());
+//            if (Arrays.asList(availableTemplates).contains(CameraCharacteristics.REQUEST_AVAILABLE_CAPABILITIES_BACKWARD_COMPATIBLE)) {
+//                // 检查是否支持 TEMPLATE_STILL_CAPTURE
+//            } else {
+//                Log.e(TAG, "Device does not support TEMPLATE_STILL_CAPTURE");
 //            }
+
+            if (Build.VERSION.SDK_INT > Build.VERSION_CODES.O) {
+                cameraSession.abortCaptures();
+            }
+            cameraSession.stopRepeating();
+
+            CaptureRequest.Builder captureRequest1 = cameraDevice.createCaptureRequest(CameraDevice.TEMPLATE_STILL_CAPTURE);
+            captureRequest1.addTarget(imageReader1.getSurface());
+            captureRequest1.set(CaptureRequest.JPEG_ORIENTATION, 90);
+
+            CaptureRequest.Builder captureRequest2 = cameraDevice.createCaptureRequest(CameraDevice.TEMPLATE_STILL_CAPTURE);
+            captureRequest2.addTarget(imageReader2.getSurface());
+            captureRequest2.set(CaptureRequest.JPEG_ORIENTATION, 90);
+
+            imageReader1.setOnImageAvailableListener(reader -> saveImageToGalleryAsync(reader.acquireLatestImage()), handler);
+            imageReader2.setOnImageAvailableListener(reader -> saveImageToGalleryAsync(reader.acquireLatestImage()), handler);
+
+
+            cameraSession.capture(captureRequest1.build(), null, handler);
+            cameraSession.capture(captureRequest2.build(), null, handler);
+
+
+            resumePreview();
 
         } catch (CameraAccessException e) {
             Log.e(TAG, "拍照失败", e);
@@ -395,68 +352,181 @@ public class DualCameraController {
             }
         }
     }
-    private void saveImageToFile(Image image) {
-        // 获取图像的平面
-        Image.Plane[] planes = image.getPlanes();
-        ByteBuffer buffer = planes[0].getBuffer();
-        byte[] bytes = new byte[buffer.remaining()];
-        buffer.get(bytes);
 
-        // 将字节数组转换为 JPEG 格式，并将其保存到手机相册
+    public void startDualCameraRecording() {
+        if (cameraDevice == null || cameraSession == null) {
+            Log.e(TAG, "摄像头未初始化或会话为空");
+            return;
+        }
+//        cameraSession.close();
+
         try {
-            // 使用 ByteArrayOutputStream 将图像字节流保存为 JPEG 格式
-            ByteArrayOutputStream byteArrayOutputStream = new ByteArrayOutputStream();
-            byteArrayOutputStream.write(bytes);
-            byte[] jpegBytes = byteArrayOutputStream.toByteArray();
 
-            // 获取 ContentResolver
-            ContentResolver contentResolver = context.getContentResolver();
-
-            // 设置要插入到 MediaStore 的数据
-            ContentValues values = new ContentValues();
-            values.put(MediaStore.Images.Media.DISPLAY_NAME, "captured_image.jpg");
-            values.put(MediaStore.Images.Media.MIME_TYPE, "image/jpeg");
-            values.put(MediaStore.Images.Media.RELATIVE_PATH, "Pictures/MyApp/"); // 图片保存的目录，可以自定义
-            values.put(MediaStore.Images.Media.IS_PENDING, 1);  // 标记文件正在保存
-
-            // 将图像插入到 MediaStore 中
-            Uri imageUri = contentResolver.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values);
-
-            // 如果插入成功
-            if (imageUri != null) {
-                // 将图像数据写入到 MediaStore
-                try (OutputStream outputStream = contentResolver.openOutputStream(Objects.requireNonNull(imageUri))) {
-                    outputStream.write(jpegBytes);
-                }
-
-                // 更新 MediaStore 的记录，标记图片已保存完毕
-                values.clear();
-                values.put(MediaStore.Images.Media.IS_PENDING, 0);
-                contentResolver.update(imageUri, values, null, null);
+            if (mediaRecorder1 == null || mediaRecorder2 == null) {
+                Log.e(TAG, "mediaRecorder 未初始化");
+                return;
             }
+
+
+            setupMediaRecorder(mediaRecorder1,1);
+            setupMediaRecorder(mediaRecorder2,2);
+            List<OutputConfiguration> configurations = new ArrayList<>();
+            vPreViewBuilder = cameraDevice.createCaptureRequest(CameraDevice.TEMPLATE_PREVIEW);
+
+            SurfaceTexture texture1 = textureView1.getSurfaceTexture();
+            Surface surface1 = new Surface(texture1);
+            OutputConfiguration configuration =new OutputConfiguration(surface1);
+            configuration.setPhysicalCameraId(dualCamera.getPhysicsCameraId1());
+            configurations.add(configuration);
+            vPreViewBuilder.addTarget(surface1);
+
+            SurfaceTexture texture2 = textureView2.getSurfaceTexture();
+            Surface surface2 = new Surface(texture2);
+            OutputConfiguration configuration2 =new OutputConfiguration(surface2);
+            configuration2.setPhysicalCameraId(dualCamera.getPhysicsCameraId2());
+            configurations.add(configuration2);
+            vPreViewBuilder.addTarget(surface2);
+
+
+            OutputConfiguration configuration_v1 =new OutputConfiguration(mediaRecorder1.getSurface());
+            configuration_v1.setPhysicalCameraId(dualCamera.getPhysicsCameraId1());
+            OutputConfiguration configuration_v2 =new OutputConfiguration(mediaRecorder2.getSurface());
+            configuration_v2.setPhysicalCameraId(dualCamera.getPhysicsCameraId2());
+            configurations.add(configuration_v1);
+            configurations.add(configuration_v2);
+            vPreViewBuilder.addTarget(mediaRecorder1.getSurface());
+            vPreViewBuilder.addTarget(mediaRecorder2.getSurface());
+
+            Executor executor = command -> handler.post(command);
+
+            SessionConfiguration sessionConfig = new SessionConfiguration(
+                    SessionConfiguration.SESSION_REGULAR,
+                    configurations,
+                    executor,
+                    new CameraCaptureSession.StateCallback() {
+                        @Override
+                        public void onConfigured(@NonNull CameraCaptureSession session) {
+                            try {
+                                vcameraSession = session;
+                                vcameraSession.setRepeatingRequest(vPreViewBuilder.build(), null, handler);
+                                mediaRecorder1.start();
+                                mediaRecorder2.start();
+                                Log.d(TAG, "双摄像头视频录制已启动");
+                            } catch (CameraAccessException e) {
+                                Log.e(TAG, "会话配置失败", e);
+                            }
+                        }
+
+                        @Override
+                        public void onConfigureFailed(@NonNull CameraCaptureSession session) {
+                            Log.e(TAG, "配置会话失败");
+                        }
+                    });
+            cameraDevice.createCaptureSession(sessionConfig);
+        } catch (CameraAccessException e) {
+            Log.e(TAG, "配置相机失败", e);
         } catch (IOException e) {
-            e.printStackTrace();
-        } finally {
-            // 关闭 Image
-            image.close();
+            throw new RuntimeException(e);
         }
     }
+
+
+    private void setupMediaRecorder(MediaRecorder mediaRecorder, int cameraId) throws IOException {
+        // 创建用于视频录制的文件路径
+        File videoDirectory = new File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DCIM), "DualCameraVideos");
+        if (!videoDirectory.exists()) {
+            videoDirectory.mkdirs();
+        }
+
+        // 为每个摄像头创建独立的视频文件
+        File videoFile = new File(videoDirectory, "dual_camera_video_" + cameraId + "_" + System.currentTimeMillis() + ".mp4");
+
+        // 保存视频文件路径
+        if (cameraId == 1) {
+            videoFile1 = videoFile; // 保存第一个摄像头的视频文件路径
+        } else {
+            videoFile2 = videoFile; // 保存第二个摄像头的视频文件路径
+        }
+
+        // 初始化 MediaRecorder
+////        mediaRecorder.setAudioSource(MediaRecorder.AudioSource.CAMCORDER);
+//        mediaRecorder.setVideoSource(MediaRecorder.VideoSource.CAMERA);
+//        mediaRecorder.setOutputFormat(MediaRecorder.OutputFormat.MPEG_4);
+//        mediaRecorder.setAudioEncoder(MediaRecorder.AudioEncoder.AAC);
+//        mediaRecorder.setVideoEncoder(MediaRecorder.VideoEncoder.H264);
+//        mediaRecorder.setVideoSize(1920, 1080); // 视频分辨率
+//        mediaRecorder.setVideoFrameRate(30); // 帧率
+//        mediaRecorder.setOutputFile(videoFile.getAbsolutePath());
+//        mediaRecorder.setOrientationHint(90); // 设置旋转角度（根据设备方向）
+
+        mediaRecorder.reset();
+        mediaRecorder.setVideoSource(MediaRecorder.VideoSource.SURFACE);
+        mediaRecorder.setOutputFormat(MediaRecorder.OutputFormat.MPEG_4);
+        mediaRecorder.setOutputFile(videoFile.getAbsolutePath());
+        mediaRecorder.setVideoEncoder(MediaRecorder.VideoEncoder.H264);
+        mediaRecorder.setVideoSize(1920, 1080); // 视频分辨率
+        mediaRecorder.setVideoFrameRate(30); // 帧率
+        mediaRecorder.setOrientationHint(90); // 设置视频旋转 90 度
+        mediaRecorder.prepare();
+    }
+
+
+    private void saveVideoToGallery(Context context, File videoFile) {
+        // 使用 MediaScannerConnection 将视频添加到相册
+        MediaScannerConnection.scanFile(context, new String[]{videoFile.getAbsolutePath()}, null,
+                (path, uri) -> Log.d(TAG, "文件已添加到相册: " + path));
+    }
+    public void stopDualCameraRecording() {
+        try {
+            if (mediaRecorder1 != null && mediaRecorder2 != null) {
+                // 停止录制
+                mediaRecorder1.stop();
+                mediaRecorder2.stop();
+                mediaRecorder1.reset();
+                mediaRecorder2.reset();
+                Log.d(TAG, "双摄像头视频录制已停止");
+
+                // 保存视频到相册
+                if (videoFile1 != null) {
+                    saveVideoToGallery(context, videoFile1); // 保存第一个摄像头的视频
+                }
+                if (videoFile2 != null) {
+                    saveVideoToGallery(context, videoFile2); // 保存第二个摄像头的视频
+                }
+                if(vcameraSession !=null){
+                    vcameraSession.close();
+                    vcameraSession = null;
+                }
+
+                resumePreview();
+            }
+
+        } catch (Exception e) {
+            Log.e(TAG, "停止录制失败", e);
+        }
+    }
+
+
+
 
     private void resumePreview() {
         try {
             if (cameraSession != null && mPreViewBuilder != null) {
-                cameraSession.setRepeatingRequest(mPreViewBuilder.build(), null, handler);
+                cameraSession.close();
+                config(cameraDevice);
             } else {
                 Log.e(TAG, "无法恢复预览：会话或请求为空");
                 releaseResources();
                 openCamera();
             }
-        } catch (CameraAccessException e) {
-            Log.e(TAG, "恢复预览失败", e);
+        } catch (Exception e) {
+            // 捕获其他异常
+            Log.e(TAG, "其他错误", e);
             releaseResources();
             openCamera();
         }
     }
+
 
     private void releaseResources() {
         try {
@@ -476,9 +546,14 @@ public class DualCameraController {
                 cameraDevice = null;
             }
 
-            if (multiResolutionImageReader != null) {
-                multiResolutionImageReader.close();
-                multiResolutionImageReader = null;
+            if (imageReader1 != null) {
+                imageReader1.close();
+                imageReader1 = null;
+            }
+
+            if (imageReader2 != null) {
+                imageReader2.close();
+                imageReader2 = null;
             }
 
             Log.d(TAG, "相机资源已成功释放");
